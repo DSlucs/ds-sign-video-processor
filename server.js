@@ -151,6 +151,89 @@ app.post('/process', upload.single('video'), async (req, res) => {
     }
 });
 
+// Endpoint para converter WebM → MP4
+app.post('/convert', upload.single('video'), async (req, res) => {
+    const startTime = Date.now();
+
+    console.log('🔄 Recebendo WebM para conversão...');
+    console.log('Tamanho:', req.file?.size || 0, 'bytes');
+
+    if (!req.file) {
+        return res.status(400).json({ error: 'Nenhum vídeo enviado' });
+    }
+
+    const inputPath = req.file.path;
+    const outputPath = path.join('/tmp', `converted_${Date.now()}.mp4`);
+
+    console.log('🎬 Convertendo WebM → MP4 H.264...');
+
+    try {
+        await new Promise((resolve, reject) => {
+            ffmpeg(inputPath)
+                .videoCodec('libx264')
+                .videoBitrate('5000k')
+                .outputOptions([
+                    '-preset fast',
+                    '-profile:v main',
+                    '-level 4.0',
+                    '-pix_fmt yuv420p',
+                    '-movflags +faststart'
+                ])
+                .audioCodec('aac')
+                .audioBitrate('128k')
+                .output(outputPath)
+                .on('start', (cmd) => {
+                    console.log('🚀 FFmpeg iniciado:', cmd);
+                })
+                .on('progress', (progress) => {
+                    console.log(`⚙️ Progresso: ${Math.round(progress.percent || 0)}%`);
+                })
+                .on('end', () => {
+                    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                    console.log(`✅ Conversão concluída em ${duration}s`);
+                    resolve();
+                })
+                .on('error', (err) => {
+                    console.error('❌ Erro FFmpeg:', err.message);
+                    reject(err);
+                })
+                .run();
+        });
+
+        // Ler arquivo convertido
+        const videoBuffer = fs.readFileSync(outputPath);
+        const fileSize = videoBuffer.length;
+
+        console.log(`📦 Enviando MP4: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+
+        // Limpar arquivos temporários
+        fs.unlinkSync(inputPath);
+        fs.unlinkSync(outputPath);
+
+        // Retornar MP4
+        res.set({
+            'Content-Type': 'video/mp4',
+            'Content-Length': fileSize,
+            'Content-Disposition': 'attachment; filename="converted.mp4"'
+        });
+        res.send(videoBuffer);
+
+    } catch (error) {
+        console.error('❌ Erro na conversão:', error);
+
+        // Limpar arquivos em caso de erro
+        try {
+            if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
+            if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
+        } catch (e) { }
+
+        res.status(500).json({
+            error: 'Erro ao converter vídeo',
+            details: error.message
+        });
+    }
+});
+
 // Iniciar servidor
 app.listen(PORT, () => {
     console.log(`🚀 Servidor rodando na porta ${PORT}`);
