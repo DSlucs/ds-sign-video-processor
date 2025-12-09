@@ -1,0 +1,6 @@
+# Render Video Processor
+node_modules/
+*.log
+.env
+.DS_Store
+/tmp/*
